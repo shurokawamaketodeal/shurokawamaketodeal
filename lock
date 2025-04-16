@@ -1,0 +1,93 @@
+
+---
+
+#### 🎯 **2. silent_aim_lock.lua** (Основной скрипт)  
+```lua
+-- Settings (Edit these!)
+local SETTINGS = {
+    SilentAim = true,
+    Lock = true,
+    Prediction = true,
+    FOV = 50,
+    WallCheck = true,
+    IgnoreTeam = true,
+    IgnoreFriends = true,
+    Keybind = Enum.KeyCode.Q
+}
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+
+-- Variables
+local Target = nil
+local Ping = 0
+local PredictionValue = 0.165
+
+-- Ping Updater
+local function updatePing()
+    while task.wait(1) do
+        local stats = game:GetService("Stats")
+        local success, result = pcall(function()
+            return stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+        end)
+        Ping = success and math.floor(result) or 100
+        PredictionValue = math.clamp(Ping / 1000 * 1.5, 0.1, 0.3)
+    end
+end
+
+-- Find Target
+local function findTarget()
+    local closestPlayer = nil
+    local closestAngle = SETTINGS.FOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        if not player.Character then continue end
+        local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(humanoidRootPart.Position)
+            if onScreen then
+                local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+                local targetPos = Vector2.new(screenPos.X, screenPos.Y)
+                local angle = (mousePos - targetPos).Magnitude
+                if angle < closestAngle then
+                    closestAngle = angle
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+-- Silent Aim Hook
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    if SETTINGS.SilentAim and method:lower() == "findpartonray" and Target and Target.Character then
+        local humanoidRootPart = Target.Character:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            local predictedPosition = humanoidRootPart.Position + (humanoidRootPart.Velocity * PredictionValue)
+            local newRay = Ray.new(Camera.CFrame.Position, (predictedPosition - Camera.CFrame.Position).Unit * 1000)
+            return oldNamecall(self, newRay, ...)
+        end
+    end
+    return oldNamecall(self, ...)
+end)
+
+-- Lock Target
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == SETTINGS.Keybind then
+        Target = findTarget()
+    end
+end)
+
+-- Init
+spawn(updatePing)
+print("Silent Aim & Lock loaded! Press", SETTINGS.Keybind, "to lock.")
